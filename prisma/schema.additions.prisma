@@ -1,0 +1,29 @@
+model StoreGroup {
+  id         String      @id @default(cuid())
+  masterShop String      @unique
+  joinCode   String      @unique
+  createdAt  DateTime    @default(now())
+  links      StoreLink[]
+}
+
+model StoreLink {
+  id       String     @id @default(cuid())
+  groupId  String
+  shop     String     @unique
+  role     String // "MASTER" | "CHILD"
+  joinedAt DateTime   @default(now())
+  group    StoreGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+model SyncLog {
+  id         String   @id @default(cuid())
+  masterShop String
+  childShop  String
+  sku        String?
+  field      String
+  status     String // "OK" | "ERROR"
+  message    String?
+  createdAt  DateTime @default(now())
+
+  @@index([masterShop, createdAt])
+}

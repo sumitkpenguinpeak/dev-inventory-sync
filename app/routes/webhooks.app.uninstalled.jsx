@@ -1,6 +1,7 @@
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
 import { recordUninstall } from "../models/installation.server";
+import { leaveGroup } from "../models/stores.server";
 
 export const action = async ({ request }) => {
   const { shop, session, topic } = await authenticate.webhook(request);
@@ -13,6 +14,7 @@ export const action = async ({ request }) => {
     await db.session.deleteMany({ where: { shop } });
   }
   await recordUninstall(shop);
+  await leaveGroup(shop); 
 
   return new Response();
 };

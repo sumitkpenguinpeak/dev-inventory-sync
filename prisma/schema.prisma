@@ -5,39 +5,68 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
-// enough when changing adapters.
-// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
 datasource db {
-  provider = "sqlite"
-  url      = "file:dev.sqlite"
+  provider = "mysql"
+  url      = env("DATABASE_URL")
 }
 
 model Session {
-  id            String    @id
-  shop          String
-  state         String
-  isOnline      Boolean   @default(false)
-  scope         String?
-  expires       DateTime?
-  accessToken   String
-  userId        BigInt?
-  firstName     String?
-  lastName      String?
-  email         String?
-  accountOwner  Boolean   @default(false)
-  locale        String?
-  collaborator  Boolean?  @default(false)
-  emailVerified Boolean?  @default(false)
-  refreshToken        String?
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?   @db.Text
+  expires             DateTime?
+  accessToken         String    @db.Text
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?   @db.Text
   refreshTokenExpires DateTime?
 }
 
 model Installation {
   id            String    @id @default(cuid())
   shop          String    @unique
-  scope         String?
+  scope         String?   @db.Text
   installedAt   DateTime  @default(now())
   lastAuthAt    DateTime  @default(now())
   uninstalledAt DateTime?
+}
+
+model StoreGroup {
+  id         String      @id @default(cuid())
+  masterShop String      @unique
+  joinCode   String      @unique
+  createdAt  DateTime    @default(now())
+  links      StoreLink[]
+}
+
+model StoreLink {
+  id       String     @id @default(cuid())
+  groupId  String
+  shop     String     @unique
+  role     String // "MASTER" | "CHILD"
+  joinedAt DateTime   @default(now())
+  group    StoreGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId])
+}
+
+model SyncLog {
+  id         String   @id @default(cuid())
+  masterShop String
+  childShop  String
+  sku        String?
+  field      String
+  status     String // "OK" | "ERROR"
+  message    String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  @@index([masterShop, createdAt])
 }
