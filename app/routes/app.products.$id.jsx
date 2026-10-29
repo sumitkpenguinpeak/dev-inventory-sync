@@ -21,6 +21,8 @@ export const loader = async ({ request, params }) => {
           handle
           status
           descriptionHtml
+          templateSuffix
+          collections(first: 50) { nodes { id title } }
           vendor
           productType
           tags
@@ -69,7 +71,21 @@ export const loader = async ({ request, params }) => {
   if (!data.product) {
     throw new Response("Product not found", { status: 404 });
   }
-  return { product: data.product };
+
+  // Manual (custom) collections j product ma add/remove thai shake.
+  const colRes = await admin.graphql(
+    `#graphql
+      query ManualCollections {
+        collections(first: 100, query: "collection_type:custom") {
+          nodes { id title }
+        }
+      }`,
+  );
+  const colJson = await colRes.json();
+  return {
+    product: data.product,
+    collections: colJson.data?.collections?.nodes ?? [],
+  };
 };
 
 export const action = async ({ request, params }) => {
@@ -78,24 +94,51 @@ export const action = async ({ request, params }) => {
   const productId = `gid://shopify/Product/${params.id}`;
   const errors = [];
 
-  // ---- 1. Description ----
-  if (form.has("description")) {
+  // ---- 1. General fields (title, description, status, org, template, collections) ----
+  const input = { id: productId };
+  if (form.has("title")) {
+    const title = String(form.get("title")).trim();
+    if (!title) errors.push("Title khali na hoi shake.");
+    else input.title = title;
+  }
+  if (form.has("description")) input.descriptionHtml = String(form.get("description"));
+  if (form.has("status")) input.status = String(form.get("status"));
+  if (form.has("vendor")) input.vendor = String(form.get("vendor")).trim();
+  if (form.has("productType")) input.productType = String(form.get("productType")).trim();
+  if (form.has("tags")) {
+    input.tags = String(form.get("tags"))
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }
+  if (form.has("templateSuffix")) {
+    // Khali = "Default product" template.
+    input.templateSuffix = String(form.get("templateSuffix")).trim() || null;
+  }
+  if (form.has("collections_orig")) {
+    const split = (v) => String(v).split(",").filter(Boolean);
+    const orig = split(form.get("collections_orig"));
+    const now = form.getAll("collections").flatMap(split);
+    const join = now.filter((c) => !orig.includes(c));
+    const leave = orig.filter((c) => !now.includes(c));
+    if (join.length) input.collectionsToJoin = join;
+    if (leave.length) input.collectionsToLeave = leave;
+  }
+
+  if (Object.keys(input).length > 1 && errors.length === 0) {
     const res = await admin.graphql(
       `#graphql
-        mutation UpdateProductDescription($product: ProductUpdateInput!) {
+        mutation UpdateProduct($product: ProductUpdateInput!) {
           productUpdate(product: $product) {
             product { id }
             userErrors { field message }
           }
         }`,
-      {
-        variables: {
-          product: { id: productId, descriptionHtml: String(form.get("description")) },
-        },
-      },
+      { variables: { product: input } },
     );
     const json = await res.json();
-    errors.push(...json.data.productUpdate.userErrors.map((e) => e.message));
+    errors.push(...(json.data?.productUpdate?.userErrors ?? []).map((e) => e.message));
+    if (json.errors?.length) errors.push(...json.errors.map((e) => e.message));
   }
 
   // ---- 2. Price / Compare-at price ----
@@ -199,7 +242,7 @@ export const action = async ({ request, params }) => {
 };
 
 export default function ProductDetails() {
-  const { product } = useLoaderData();
+  const { product, collections } = useLoaderData();
   const fetcher = useFetcher();
   const shopify = useAppBridge();
   const currency = product.priceRangeV2.minVariantPrice.currencyCode;
@@ -213,6 +256,7 @@ export default function ProductDetails() {
   // Save pachhi form fresh values sathe pharithi banay te mate key.
   const formKey = JSON.stringify([
     product.updatedAt,
+    product.collections.nodes.map((c) => c.id),
     product.variants.nodes.map((v) => [
       v.price,
       v.compareAtPrice,
@@ -258,6 +302,15 @@ export default function ProductDetails() {
         onSubmit={handleSubmit}
       >
         <s-stack direction="block" gap="base">
+          <s-section heading="Title">
+            <s-text-field
+              label="Title"
+              labelAccessibilityVisibility="exclusive"
+              name="title"
+              defaultValue={product.title}
+            />
+          </s-section>
+
           <s-section heading="Description">
             <s-text-area
               label="Description"
@@ -283,6 +336,53 @@ export default function ProductDetails() {
               </s-stack>
             </s-section>
           )}
+
+          <s-section heading="Status & organization">
+            <s-stack direction="block" gap="base">
+              <s-select label="Status" name="status" value={product.status}>
+                <s-option value="ACTIVE">Active</s-option>
+                <s-option value="DRAFT">Draft</s-option>
+                <s-option value="ARCHIVED">Archived</s-option>
+              </s-select>
+              <s-text-field label="Type" name="productType" defaultValue={product.productType} />
+              <s-text-field label="Vendor" name="vendor" defaultValue={product.vendor} />
+              <s-text-field
+                label="Tags"
+                name="tags"
+                details="Comma vade alag karo (jemke Winter, Sport)."
+                defaultValue={product.tags.join(", ")}
+              />
+              <s-text-field
+                label="Theme template"
+                name="templateSuffix"
+                details="Khali = Default product."
+                defaultValue={product.templateSuffix ?? ""}
+              />
+              <input
+                type="hidden"
+                name="collections_orig"
+                value={product.collections.nodes.map((c) => c.id).join(",")}
+              />
+              {collections.length > 0 && (
+                <s-choice-list
+                  label="Collections"
+                  name="collections"
+                  multiple
+                  details="Fakat manual collections."
+                >
+                  {collections.map((c) => (
+                    <s-choice
+                      key={c.id}
+                      value={c.id}
+                      selected={product.collections.nodes.some((pc) => pc.id === c.id)}
+                    >
+                      {c.title}
+                    </s-choice>
+                  ))}
+                </s-choice-list>
+              )}
+            </s-stack>
+          </s-section>
 
           <s-section heading="Variants: price & inventory" padding="none">
             <s-table>
@@ -373,16 +473,8 @@ export default function ProductDetails() {
         </s-badge>
       </s-section>
 
-      <s-section slot="aside" heading="Product organization">
+      <s-section slot="aside" heading="Details">
         <s-stack direction="block" gap="small-200">
-          <s-paragraph>
-            <s-text type="strong">Vendor: </s-text>
-            <s-text>{product.vendor || "-"}</s-text>
-          </s-paragraph>
-          <s-paragraph>
-            <s-text type="strong">Type: </s-text>
-            <s-text>{product.productType || "-"}</s-text>
-          </s-paragraph>
           <s-paragraph>
             <s-text type="strong">Handle: </s-text>
             <s-text>{product.handle}</s-text>
@@ -393,13 +485,6 @@ export default function ProductDetails() {
               {product.tracksInventory ? product.totalInventory : "Not tracked"}
             </s-text>
           </s-paragraph>
-          {product.tags.length > 0 && (
-            <s-stack direction="inline" gap="small-200">
-              {product.tags.map((t) => (
-                <s-badge key={t}>{t}</s-badge>
-              ))}
-            </s-stack>
-          )}
         </s-stack>
       </s-section>
 
