@@ -9,9 +9,23 @@ import {
   getLink,
   joinGroup,
   leaveGroup,
+  parseSyncSettings,
   removeChild,
+  saveSyncSettings,
 } from "../models/stores.server";
 import { syncAll } from "../models/sync.server";
+
+const FIELD_LABELS = {
+  price: "Price & compare-at price",
+  inventory: "Inventory",
+  title: "Title",
+  description: "Description",
+  status: "Status",
+  productType: "Product type",
+  vendor: "Vendor",
+  tags: "Tags",
+  images: "Images",
+};
 
 export const loader = async ({ request }) => {
   const { session } = await authenticate.admin(request);
@@ -35,6 +49,7 @@ export const loader = async ({ request }) => {
     max: MAX_STORES,
     masterShop: group.masterShop,
     joinCode: link.role === "MASTER" ? group.joinCode : null,
+    settings: link.role === "MASTER" ? parseSyncSettings(group.settings) : null,
     stores: group.links.map((l) => ({ shop: l.shop, role: l.role })),
     logs: logs.map((l) => ({ ...l, createdAt: l.createdAt.toISOString() })),
   };
@@ -51,7 +66,10 @@ export const action = async ({ request }) => {
     else if (intent === "join") await joinGroup(session.shop, String(form.get("code") ?? ""));
     else if (intent === "leave") await leaveGroup(session.shop);
     else if (intent === "remove") await removeChild(session.shop, String(form.get("shop")));
-    else if (intent === "sync_all") {
+    else if (intent === "save_settings") {
+      await saveSyncSettings(session.shop, JSON.parse(String(form.get("settings") || "{}")));
+      return { ok: true, message: "Sync options save thai gaya." };
+    } else if (intent === "sync_all") {
       const r = await syncAll(session.shop);
       return { ok: true, message: `${r.products} products sync thaya.` };
     }
@@ -67,6 +85,7 @@ export default function Stores() {
   const busy = useNavigation().state !== "idle";
   const submit = useSubmit();
   const [code, setCode] = useState("");
+  const [opts, setOpts] = useState(data.settings ?? {});
   const send = (intent, extra = {}) => submit({ intent, ...extra }, { method: "post" });
 
   return (
@@ -136,6 +155,23 @@ export default function Stores() {
                   Child stores ma app install karine aa code nakho (baki 2 stores mate):
                 </s-paragraph>
                 <s-heading>{data.joinCode}</s-heading>
+              </s-section>
+
+              <s-section heading="Sync options">
+                <s-paragraph>Master thi child ma kya fields sync karva e pasand karo:</s-paragraph>
+                <s-stack direction="block" gap="small-200">
+                  {Object.entries(FIELD_LABELS).map(([key, label]) => (
+                    <s-checkbox
+                      key={key}
+                      label={label}
+                      checked={Boolean(opts[key])}
+                      onChange={(e) => setOpts({ ...opts, [key]: e.currentTarget.checked })}
+                    />
+                  ))}
+                  <s-button onClick={() => send("save_settings", { settings: JSON.stringify(opts) })}>
+                    Save options
+                  </s-button>
+                </s-stack>
               </s-section>
 
               <s-section heading="Sync">

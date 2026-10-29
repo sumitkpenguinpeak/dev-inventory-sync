@@ -63,3 +63,36 @@ export async function removeChild(masterShop, childShop) {
   }
   await db.storeLink.delete({ where: { shop: childShop } });
 }
+
+/* ---------- Sync options (kya fields sync karva) ---------- */
+export const DEFAULT_SYNC_FIELDS = {
+  price: true,
+  inventory: true,
+  title: true,
+  description: true,
+  status: true,
+  productType: true,
+  vendor: true,
+  tags: true,
+  images: true,
+};
+
+export function parseSyncSettings(raw) {
+  try {
+    return { ...DEFAULT_SYNC_FIELDS, ...(raw ? JSON.parse(raw) : {}) };
+  } catch {
+    return { ...DEFAULT_SYNC_FIELDS };
+  }
+}
+
+export async function saveSyncSettings(masterShop, fields) {
+  const master = await db.storeLink.findUnique({ where: { shop: masterShop } });
+  if (!master || master.role !== "MASTER") throw new Error("Fakat master settings badli shake.");
+  const clean = Object.fromEntries(
+    Object.keys(DEFAULT_SYNC_FIELDS).map((k) => [k, Boolean(fields?.[k])]),
+  );
+  await db.storeGroup.update({
+    where: { id: master.groupId },
+    data: { settings: JSON.stringify(clean) },
+  });
+}

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import db from "../db.server";
 import { unauthenticated } from "../shopify.server";
+import { parseSyncSettings } from "./stores.server";
+
 
 const esc = (s) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 
@@ -24,13 +26,27 @@ async function getMasterLink(shop) {
   });
 }
 
-/* ---------- Master na variants vanchvu ---------- */
-async function readMasterVariants(admin, productId) {
+// Image URL ma thi file name (CDN par alag store ma URL alag hoy, file name same rahe chhe)
+const fileName = (url) =>
+  decodeURIComponent((url ?? "").split("?")[0].split("/").pop() ?? "").toLowerCase();
+const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+/* ---------- Master na product + variants vanchvu ---------- */
+async function readMaster(admin, productId) {
   const data = await gql(
     admin,
     `#graphql
       query MasterProduct($id: ID!) {
         product(id: $id) {
+          title
+          descriptionHtml
+          status
+          productType
+          vendor
+          tags
+          media(first: 20) {
+            nodes { ... on MediaImage { image { url altText } } }
+          }
           variants(first: 100) {
             nodes {
               sku
@@ -48,7 +64,10 @@ async function readMasterVariants(admin, productId) {
       }`,
     { id: productId },
   );
-  return (data.product?.variants.nodes ?? []).map((v) => {
+  const p = data.product;
+  if (!p) return null;
+
+  const variants = p.variants.nodes.map((v) => {
     let qty = null;
     if (v.inventoryItem?.tracked) {
       qty = v.inventoryItem.inventoryLevels.nodes.reduce(
@@ -58,11 +77,125 @@ async function readMasterVariants(admin, productId) {
     }
     return { sku: v.sku, price: v.price, compareAtPrice: v.compareAtPrice ?? null, qty };
   });
+
+  return {
+    fields: {
+      title: p.title,
+      descriptionHtml: p.descriptionHtml,
+      status: p.status,
+      productType: p.productType,
+      vendor: p.vendor,
+      tags: p.tags,
+      images: p.media.nodes
+        .filter((m) => m.image)
+        .map((m) => ({ url: m.image.url, alt: m.image.altText ?? "" })),
+    },
+    variants,
+  };
+}
+
+/* ---------- Child ma product-level fields (title, image, status...) ---------- */
+async function syncProductFields(admin, masterShop, childShop, productSkus, mf, F) {
+  const data = await gql(
+    admin,
+    `#graphql
+      query ChildProducts($ids: [ID!]!) {
+        nodes(ids: $ids) {
+          ... on Product {
+            id
+            title
+            descriptionHtml
+            status
+            productType
+            vendor
+            tags
+            media(first: 50) {
+              nodes { id ... on MediaImage { image { url } } }
+            }
+          }
+        }
+      }`,
+    { ids: [...productSkus.keys()] },
+  );
+
+  for (const c of data.nodes.filter(Boolean)) {
+    const sku = productSkus.get(c.id);
+    const input = { id: c.id };
+    const changed = [];
+
+    const set = (key, field, flag = true) => {
+      if (flag && c[key] !== mf[key]) {
+        input[key] = mf[key];
+        changed.push(field);
+      }
+    };
+    if (F.title) set("title", "title");
+    if (F.description) set("descriptionHtml", "description");
+    if (F.status) set("status", "status");
+    if (F.productType) set("productType", "type");
+    if (F.vendor) set("vendor", "vendor");
+    if (F.tags && !sameList([...c.tags].sort(), [...mf.tags].sort())) {
+      input.tags = mf.tags;
+      changed.push("tags");
+    }
+
+    // Images
+    let media = null;
+    if (F.images) {
+      const childFiles = c.media.nodes.filter((m) => m.image).map((m) => fileName(m.image.url));
+      const masterFiles = mf.images.map((i) => fileName(i.url));
+      if (!sameList(childFiles, masterFiles)) {
+        const oldIds = c.media.nodes.map((m) => m.id);
+        if (oldIds.length) {
+          const d = await gql(
+            admin,
+            `#graphql
+              mutation DeleteMedia($productId: ID!, $mediaIds: [ID!]!) {
+                productDeleteMedia(productId: $productId, mediaIds: $mediaIds) {
+                  mediaUserErrors { field message }
+                }
+              }`,
+            { productId: c.id, mediaIds: oldIds },
+          );
+          const e = d.productDeleteMedia.mediaUserErrors;
+          if (e.length) {
+            await log(masterShop, childShop, sku, "images", "ERROR", e.map((x) => x.message).join("; "));
+          }
+        }
+        if (mf.images.length) {
+          media = mf.images.map((i) => ({
+            originalSource: i.url,
+            alt: i.alt,
+            mediaContentType: "IMAGE",
+          }));
+        }
+        changed.push("images");
+      }
+    }
+
+    if (Object.keys(input).length === 1 && !media) continue; // kai badlayu nathi
+
+    const r = await gql(
+      admin,
+      `#graphql
+        mutation SyncProduct($product: ProductUpdateInput!, $media: [CreateMediaInput!]) {
+          productUpdate(product: $product, media: $media) {
+            userErrors { field message }
+          }
+        }`,
+      { product: input, media },
+    );
+    const errs = r.productUpdate.userErrors;
+    await log(masterShop, childShop, sku, changed.join(", "),
+      errs.length ? "ERROR" : "OK", errs.map((e) => e.message).join("; ") || "updated");
+  }
 }
 
 /* ---------- Ek child store ma push karvu ---------- */
-async function syncToChild(masterShop, childShop, masterVariants) {
+async function syncToChild(masterShop, childShop, master, F) {
   const { admin } = await unauthenticated.admin(childShop);
+  const masterVariants = master.variants;
+  const productSkus = new Map(); // child productId -> sku
 
   for (let i = 0; i < masterVariants.length; i += 25) {
     const chunk = masterVariants.slice(i, i + 25);
@@ -101,7 +234,7 @@ async function syncToChild(masterShop, childShop, masterVariants) {
 
     const priceUpdates = new Map(); // productId -> [variant inputs]
     const qtyUpdates = [];
-    const skuOf = new Map(); // variantId -> sku (log mate)
+    const skuOf = new Map(); // variantId -> sku
 
     for (const m of chunk) {
       const c = bySku.get(m.sku);
@@ -109,19 +242,22 @@ async function syncToChild(masterShop, childShop, masterVariants) {
         await log(masterShop, childShop, m.sku, "match", "ERROR", "Child store ma aa SKU malyo nahi");
         continue;
       }
-      const priceChanged =
-        Number(c.price) !== Number(m.price) ||
-        (c.compareAtPrice ?? null) !== (m.compareAtPrice ?? null) &&
+      if (!productSkus.has(c.product.id)) productSkus.set(c.product.id, m.sku);
+
+      if (F.price) {
+        const priceChanged =
+          Number(c.price) !== Number(m.price) ||
           Number(c.compareAtPrice ?? -1) !== Number(m.compareAtPrice ?? -1);
-      if (priceChanged) {
-        const list = priceUpdates.get(c.product.id) ?? [];
-        list.push({ id: c.id, price: m.price, compareAtPrice: m.compareAtPrice });
-        priceUpdates.set(c.product.id, list);
-        skuOf.set(c.id, m.sku);
+        if (priceChanged) {
+          const list = priceUpdates.get(c.product.id) ?? [];
+          list.push({ id: c.id, price: m.price, compareAtPrice: m.compareAtPrice });
+          priceUpdates.set(c.product.id, list);
+          skuOf.set(c.id, m.sku);
+        }
       }
 
       const level = c.inventoryItem?.inventoryLevels.nodes[0];
-      if (m.qty !== null && c.inventoryItem?.tracked && level) {
+      if (F.inventory && m.qty !== null && c.inventoryItem?.tracked && level) {
         const cur = level.quantities.find((x) => x.name === "available")?.quantity ?? 0;
         if (cur !== m.qty) {
           qtyUpdates.push({
@@ -172,6 +308,10 @@ async function syncToChild(masterShop, childShop, masterVariants) {
       }
     }
   }
+
+  if (productSkus.size) {
+    await syncProductFields(admin, masterShop, childShop, productSkus, master.fields, F);
+  }
 }
 
 /* ---------- Public API ---------- */
@@ -181,15 +321,18 @@ export async function syncProduct(masterShop, productGid) {
   if (!link) return console.log("[sync] STOP: aa store master nathi (group nathi)");
   const children = link.group.links.filter((l) => l.role === "CHILD");
   if (!children.length) return console.log("[sync] STOP: koi child nathi");
+  const F = parseSyncSettings(link.group.settings);
 
   const { admin } = await unauthenticated.admin(masterShop);
-  const variants = (await readMasterVariants(admin, productGid)).filter((v) => v.sku);
-  console.log("[sync] children:", children.map((c) => c.shop), "variants with SKU:", variants.length);
-  if (!variants.length) return;
+  const master = await readMaster(admin, productGid);
+  if (!master) return;
+  master.variants = master.variants.filter((v) => v.sku);
+  console.log("[sync] children:", children.map((c) => c.shop), "variants with SKU:", master.variants.length);
+  if (!master.variants.length) return;
 
   for (const child of children) {
     try {
-      await syncToChild(masterShop, child.shop, variants);
+      await syncToChild(masterShop, child.shop, master, F);
     } catch (e) {
       await log(masterShop, child.shop, null, "sync", "ERROR", e.message);
     }

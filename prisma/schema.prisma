@@ -43,6 +43,7 @@ model StoreGroup {
   id         String      @id @default(cuid())
   masterShop String      @unique
   joinCode   String      @unique
+  settings   String?     @db.Text // JSON: kya fields sync karva
   createdAt  DateTime    @default(now())
   links      StoreLink[]
 }
