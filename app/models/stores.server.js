@@ -75,6 +75,8 @@ export const DEFAULT_SYNC_FIELDS = {
   vendor: true,
   tags: true,
   images: true,
+  collections: true,
+  template: true,
 };
 
 export function parseSyncSettings(raw) {

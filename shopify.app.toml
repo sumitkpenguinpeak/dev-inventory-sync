@@ -1,13 +1,13 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "76a2f56583f16d4283193f967cdb27df"
-application_url = "https://valuation-observation-enhancing-protect.trycloudflare.com"
+application_url = "https://indicated-delete-immigrants-consequences.trycloudflare.com"
 embedded = true
 name = "Dev Inventory Sync"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products, write_inventory, read_locations, write_metaobjects, write_metaobject_definitions"
+scopes = "write_products, write_inventory, read_locations, write_files, write_metaobjects, write_metaobject_definitions"
 
 [product.metafields.app.demo_info]
 type = "single_line_text_field"
@@ -34,7 +34,7 @@ name = "Description"
 type = "multi_line_text_field"
 
 [webhooks]
-api_version = "2027-01"
+api_version = "2026-10"
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/app/uninstalled"
@@ -79,7 +79,7 @@ api_version = "2026-10"
   query_filter = "product.status:'ACTIVE'"
 
 [auth]
-redirect_urls = [ "https://valuation-observation-enhancing-protect.trycloudflare.com/api/auth" ]
+redirect_urls = [ "https://indicated-delete-immigrants-consequences.trycloudflare.com/api/auth" ]
 
 [build]
 automatically_update_urls_on_dev = true

@@ -30,6 +30,7 @@ async function getMasterLink(shop) {
 const fileName = (url) =>
   decodeURIComponent((url ?? "").split("?")[0].split("/").pop() ?? "").toLowerCase();
 const sameList = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const norm = (t) => (t ?? "").trim().toLowerCase();
 
 /* ---------- Master na product + variants vanchvu ---------- */
 async function readMaster(admin, productId) {
@@ -44,8 +45,12 @@ async function readMaster(admin, productId) {
           productType
           vendor
           tags
+          templateSuffix
+          collections(first: 100) {
+            nodes { title ruleSet { appliedDisjunctively } }
+          }
           media(first: 20) {
-            nodes { ... on MediaImage { image { url altText } } }
+            nodes { ... on MediaImage { status image { url altText } } }
           }
           variants(first: 100) {
             nodes {
@@ -86,12 +91,92 @@ async function readMaster(admin, productId) {
       productType: p.productType,
       vendor: p.vendor,
       tags: p.tags,
+      templateSuffix: p.templateSuffix ?? null,
+      collections: p.collections.nodes.filter((c) => !c.ruleSet).map((c) => c.title),
+      // Master ni badhi image READY hoy to j images sync karvi
+      imagesReady: p.media.nodes.every((m) => !m.status || m.status === "READY"),
       images: p.media.nodes
         .filter((m) => m.image)
         .map((m) => ({ url: m.image.url, alt: m.image.altText ?? "" })),
     },
     variants,
   };
+}
+
+/* ---------- Collections sync (title thi match, kemke ID store pramane alag hoy) ---------- */
+
+// Child store na badha manual collections: title -> id
+async function getChildCollections(admin) {
+  const map = new Map();
+  let after = null;
+  do {
+    const d = await gql(
+      admin,
+      `#graphql
+        query ChildCollections($after: String) {
+          collections(first: 100, after: $after, query: "collection_type:custom") {
+            nodes { id title }
+            pageInfo { hasNextPage endCursor }
+          }
+        }`,
+      { after },
+    );
+    for (const c of d.collections.nodes) map.set(norm(c.title), c.id);
+    after = d.collections.pageInfo.hasNextPage ? d.collections.pageInfo.endCursor : null;
+  } while (after);
+  return map;
+}
+
+async function syncCollections(admin, masterShop, childShop, sku, c, masterTitles, byTitle) {
+  const wanted = new Set(masterTitles.map(norm));
+  const current = c.collections.nodes.filter((x) => !x.ruleSet); // smart collection ne aadvo nahi
+  const currentTitles = new Set(current.map((x) => norm(x.title)));
+
+  const toAdd = [];
+  const missing = [];
+  for (const t of masterTitles) {
+    if (currentTitles.has(norm(t))) continue;
+    const id = byTitle.get(norm(t));
+    if (id) toAdd.push(id);
+    else missing.push(t);
+  }
+  const toRemove = current.filter((x) => !wanted.has(norm(x.title))).map((x) => x.id);
+
+  if (missing.length) {
+    await log(masterShop, childShop, sku, "collections", "ERROR",
+      `Child ma collection nathi: ${missing.join(", ")}`);
+  }
+  if (!toAdd.length && !toRemove.length) return;
+
+  const errs = [];
+  for (const id of toAdd) {
+    const r = await gql(
+      admin,
+      `#graphql
+        mutation AddToCollection($id: ID!, $productIds: [ID!]!) {
+          collectionAddProducts(id: $id, productIds: $productIds) {
+            userErrors { field message }
+          }
+        }`,
+      { id, productIds: [c.id] },
+    );
+    errs.push(...r.collectionAddProducts.userErrors.map((e) => e.message));
+  }
+  for (const id of toRemove) {
+    const r = await gql(
+      admin,
+      `#graphql
+        mutation RemoveFromCollection($id: ID!, $productIds: [ID!]!) {
+          collectionRemoveProducts(id: $id, productIds: $productIds) {
+            userErrors { field message }
+          }
+        }`,
+      { id, productIds: [c.id] },
+    );
+    errs.push(...r.collectionRemoveProducts.userErrors.map((e) => e.message));
+  }
+  await log(masterShop, childShop, sku, "collections",
+    errs.length ? "ERROR" : "OK", errs.join("; ") || "updated");
 }
 
 /* ---------- Child ma product-level fields (title, image, status...) ---------- */
@@ -109,6 +194,10 @@ async function syncProductFields(admin, masterShop, childShop, productSkus, mf, 
             productType
             vendor
             tags
+            templateSuffix
+            collections(first: 100) {
+              nodes { id title ruleSet { appliedDisjunctively } }
+            }
             media(first: 50) {
               nodes { id ... on MediaImage { image { url } } }
             }
@@ -118,10 +207,22 @@ async function syncProductFields(admin, masterShop, childShop, productSkus, mf, 
     { ids: [...productSkus.keys()] },
   );
 
+  // Child na collections (title -> id) ek j var vanchvu
+  const childCollections = F.collections ? await getChildCollections(admin) : null;
+
   for (const c of data.nodes.filter(Boolean)) {
     const sku = productSkus.get(c.id);
     const input = { id: c.id };
     const changed = [];
+
+    // Collections: `continue` pehla j rakhvu, nahi to bijhu kai na badlay tyare skip thai jay
+    if (F.collections) {
+      try {
+        await syncCollections(admin, masterShop, childShop, sku, c, mf.collections, childCollections);
+      } catch (err) {
+        await log(masterShop, childShop, sku, "collections", "ERROR", err.message);
+      }
+    }
 
     const set = (key, field, flag = true) => {
       if (flag && c[key] !== mf[key]) {
@@ -133,35 +234,31 @@ async function syncProductFields(admin, masterShop, childShop, productSkus, mf, 
     if (F.description) set("descriptionHtml", "description");
     if (F.status) set("status", "status");
     if (F.productType) set("productType", "type");
+    if (F.template && (c.templateSuffix ?? null) !== (mf.templateSuffix ?? null)) {
+      input.templateSuffix = mf.templateSuffix ?? null;
+      changed.push("template");
+    }
     if (F.vendor) set("vendor", "vendor");
     if (F.tags && !sameList([...c.tags].sort(), [...mf.tags].sort())) {
       input.tags = mf.tags;
       changed.push("tags");
     }
 
-    // Images
+    // Images: pehla navi add karo, update safal thay pachhi juni delete karo
     let media = null;
-    if (F.images) {
+    let oldMediaIds = null;
+    console.log("[sync][images]", childShop, sku, {
+      enabled: F.images,
+      masterReady: mf.imagesReady,
+      masterFiles: mf.images.map((i) => fileName(i.url)),
+      childFiles: c.media.nodes.filter((m) => m.image).map((m) => fileName(m.image.url)),
+    });
+    if (F.images && mf.imagesReady) {
       const childFiles = c.media.nodes.filter((m) => m.image).map((m) => fileName(m.image.url));
       const masterFiles = mf.images.map((i) => fileName(i.url));
-      if (!sameList(childFiles, masterFiles)) {
-        const oldIds = c.media.nodes.map((m) => m.id);
-        if (oldIds.length) {
-          const d = await gql(
-            admin,
-            `#graphql
-              mutation DeleteMedia($productId: ID!, $mediaIds: [ID!]!) {
-                productDeleteMedia(productId: $productId, mediaIds: $mediaIds) {
-                  mediaUserErrors { field message }
-                }
-              }`,
-            { productId: c.id, mediaIds: oldIds },
-          );
-          const e = d.productDeleteMedia.mediaUserErrors;
-          if (e.length) {
-            await log(masterShop, childShop, sku, "images", "ERROR", e.map((x) => x.message).join("; "));
-          }
-        }
+      const childBusy = c.media.nodes.some((m) => !m.image); // child ma image haju processing ma
+      if (!childBusy && !sameList(childFiles, masterFiles)) {
+        oldMediaIds = c.media.nodes.map((m) => m.id);
         if (mf.images.length) {
           media = mf.images.map((i) => ({
             originalSource: i.url,
@@ -173,7 +270,7 @@ async function syncProductFields(admin, masterShop, childShop, productSkus, mf, 
       }
     }
 
-    if (Object.keys(input).length === 1 && !media) continue; // kai badlayu nathi
+    if (Object.keys(input).length === 1 && !media && !oldMediaIds?.length) continue; // kai badlayu nathi
 
     const r = await gql(
       admin,
@@ -188,6 +285,29 @@ async function syncProductFields(admin, masterShop, childShop, productSkus, mf, 
     const errs = r.productUpdate.userErrors;
     await log(masterShop, childShop, sku, changed.join(", "),
       errs.length ? "ERROR" : "OK", errs.map((e) => e.message).join("; ") || "updated");
+
+    // Navi image add thai gai pachhi j juni delete karo
+    if (oldMediaIds?.length && !errs.length) {
+      try {
+        const d = await gql(
+          admin,
+          `#graphql
+            mutation DeleteOldMedia($fileIds: [ID!]!) {
+              fileDelete(fileIds: $fileIds) {
+                userErrors { field message }
+              }
+            }`,
+          { fileIds: oldMediaIds },
+        );
+        const e = d.fileDelete.userErrors;
+        if (e.length) {
+          await log(masterShop, childShop, sku, "images-delete", "ERROR", e.map((x) => x.message).join("; "));
+        }
+      } catch (err) {
+        console.error("[sync][images] delete failed:", err.message);
+        await log(masterShop, childShop, sku, "images-delete", "ERROR", err.message);
+      }
+    }
   }
 }
 
@@ -315,8 +435,8 @@ async function syncToChild(masterShop, childShop, master, F) {
 }
 
 /* ---------- Public API ---------- */
-export async function syncProduct(masterShop, productGid) {
-  console.log("[sync] start", masterShop, productGid);
+export async function syncProduct(masterShop, productGid, attempt = 0) {
+  console.log("[sync] start", masterShop, productGid, "attempt", attempt);
   const link = await getMasterLink(masterShop);
   if (!link) return console.log("[sync] STOP: aa store master nathi (group nathi)");
   const children = link.group.links.filter((l) => l.role === "CHILD");
@@ -327,6 +447,12 @@ export async function syncProduct(masterShop, productGid) {
   const master = await readMaster(admin, productGid);
   if (!master) return;
   master.variants = master.variants.filter((v) => v.sku);
+
+  // Master ni image haju processing ma hoy to 5 sec pachhi pachho try karo (max ~1 minute)
+  if (F.images && !master.fields.imagesReady && attempt < 12) {
+    console.log("[sync] master image processing, retry in 5s, attempt", attempt + 1);
+    scheduleProductSync(masterShop, productGid, attempt + 1, 5000);
+  }
   console.log("[sync] children:", children.map((c) => c.shop), "variants with SKU:", master.variants.length);
   if (!master.variants.length) return;
 
@@ -341,15 +467,15 @@ export async function syncProduct(masterShop, productGid) {
 
 // Webhook ghani var fire thay chhe, etle 3 sec ma aavela events ne ek kari didha.
 const pending = new Map();
-export function scheduleProductSync(masterShop, productGid) {
+export function scheduleProductSync(masterShop, productGid, attempt = 0, delay = 3000) {
   const key = `${masterShop}|${productGid}`;
   clearTimeout(pending.get(key));
   pending.set(
     key,
     setTimeout(() => {
       pending.delete(key);
-      syncProduct(masterShop, productGid).catch((e) => console.error("sync failed", e));
-    }, 3000),
+      syncProduct(masterShop, productGid, attempt).catch((e) => console.error("sync failed", e));
+    }, delay),
   );
 }
 
