@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "76a2f56583f16d4283193f967cdb27df"
-application_url = "https://finding-reductions-tube-selective.trycloudflare.com"
+application_url = "https://doubt-waiting-performer-stopping.trycloudflare.com"
 embedded = true
 name = "Dev Inventory Sync"
 
@@ -79,7 +79,7 @@ api_version = "2026-10"
   query_filter = "product.status:'ACTIVE'"
 
 [auth]
-redirect_urls = [ "https://finding-reductions-tube-selective.trycloudflare.com/api/auth" ]
+redirect_urls = [ "https://doubt-waiting-performer-stopping.trycloudflare.com/api/auth" ]
 
 [build]
 automatically_update_urls_on_dev = true
