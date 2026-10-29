@@ -175,19 +175,32 @@ async function syncToChild(masterShop, childShop, masterVariants) {
 
 /* ---------- Public API ---------- */
 export async function syncProduct(masterShop, productGid) {
+  console.log(`[sync] start master=${masterShop} product=${productGid}`);
   const link = await getMasterLink(masterShop);
-  if (!link) return; // master nathi => kai nahi karvu
+  if (!link) {
+    console.log(`[sync] SKIP: ${masterShop} is not a MASTER of any group`);
+    return; // master nathi => kai nahi karvu
+  }
   const children = link.group.links.filter((l) => l.role === "CHILD");
-  if (!children.length) return;
+  if (!children.length) {
+    console.log(`[sync] SKIP: group has no CHILD stores (links: ${link.group.links.map((l) => `${l.shop}:${l.role}`).join(", ")})`);
+    return;
+  }
 
   const { admin } = await unauthenticated.admin(masterShop);
-  const variants = (await readMasterVariants(admin, productGid)).filter((v) => v.sku);
-  if (!variants.length) return;
+  const all = await readMasterVariants(admin, productGid);
+  const variants = all.filter((v) => v.sku);
+  if (!variants.length) {
+    console.log(`[sync] SKIP: ${all.length} variants but none has a SKU`);
+    return;
+  }
+  console.log(`[sync] pushing ${variants.length} variants to ${children.map((c) => c.shop).join(", ")}`);
 
   for (const child of children) {
     try {
       await syncToChild(masterShop, child.shop, variants);
     } catch (e) {
+      console.error(`[sync] ERROR child=${child.shop}:`, e);
       await log(masterShop, child.shop, null, "sync", "ERROR", e.message);
     }
   }
