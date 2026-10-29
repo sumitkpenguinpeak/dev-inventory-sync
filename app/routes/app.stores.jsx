@@ -1,4 +1,5 @@
-import { Form, useActionData, useLoaderData, useNavigation } from "react-router";
+import { useState } from "react";
+import { useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import db from "../db.server";
@@ -43,6 +44,7 @@ export const action = async ({ request }) => {
   const { session } = await authenticate.admin(request);
   const form = await request.formData();
   const intent = form.get("intent");
+  console.log("[stores action]", session.shop, intent);
 
   try {
     if (intent === "create") await createGroup(session.shop);
@@ -63,6 +65,9 @@ export default function Stores() {
   const data = useLoaderData();
   const result = useActionData();
   const busy = useNavigation().state !== "idle";
+  const submit = useSubmit();
+  const [code, setCode] = useState("");
+  const send = (intent, extra = {}) => submit({ intent, ...extra }, { method: "post" });
 
   return (
     <s-page heading="Multi-store sync">
@@ -83,22 +88,23 @@ export default function Stores() {
             <s-paragraph>
               Aa store ma je price ane inventory badlase e bija connected stores ma sync thase.
             </s-paragraph>
-            <Form method="post">
-              <input type="hidden" name="intent" value="create" />
-              <s-button type="submit" {...(busy ? { loading: true } : {})}>
+            <s-button onClick={() => send("create")} {...(busy ? { loading: true } : {})}>
                 Create master group
               </s-button>
-            </Form>
           </s-section>
 
           <s-section heading="Master na group ma join thao">
-            <Form method="post">
-              <input type="hidden" name="intent" value="join" />
-              <s-stack direction="block" gap="base">
-                <s-text-field name="code" label="Join code" details="Master store na Stores page par thi code lo" />
-                <s-button type="submit">Join group</s-button>
-              </s-stack>
-            </Form>
+            <s-stack direction="block" gap="base">
+              <s-text-field
+                name="code"
+                label="Join code"
+                details="Master store na Stores page par thi code lo"
+                value={code}
+                onInput={(e) => setCode(e.currentTarget.value)}
+                onChange={(e) => setCode(e.currentTarget.value)}
+              />
+              <s-button onClick={() => send("join", { code })}>Join group</s-button>
+            </s-stack>
           </s-section>
         </>
       )}
@@ -116,11 +122,7 @@ export default function Stores() {
                   <s-text>{s.shop}</s-text>
                   <s-badge tone={s.role === "MASTER" ? "success" : "neutral"}>{s.role}</s-badge>
                   {data.role === "MASTER" && s.role === "CHILD" && (
-                    <Form method="post">
-                      <input type="hidden" name="intent" value="remove" />
-                      <input type="hidden" name="shop" value={s.shop} />
-                      <s-button type="submit" tone="critical" variant="tertiary">Remove</s-button>
-                    </Form>
+                    <s-button tone="critical" variant="tertiary" onClick={() => send("remove", { shop: s.shop })}>Remove</s-button>
                   )}
                 </s-stack>
               ))}
@@ -137,12 +139,9 @@ export default function Stores() {
               </s-section>
 
               <s-section heading="Sync">
-                <Form method="post">
-                  <input type="hidden" name="intent" value="sync_all" />
-                  <s-button type="submit" {...(busy ? { loading: true } : {})}>
-                    Sync all products now
-                  </s-button>
-                </Form>
+                <s-button onClick={() => send("sync_all")} {...(busy ? { loading: true } : {})}>
+                  Sync all products now
+                </s-button>
               </s-section>
 
               <s-section heading="Recent sync log" padding="none">
@@ -180,10 +179,7 @@ export default function Stores() {
                 ? "Master chhodso to puru group delete thai jase."
                 : "Aa store master na group mathi nikli jase."}
             </s-paragraph>
-            <Form method="post">
-              <input type="hidden" name="intent" value="leave" />
-              <s-button type="submit" tone="critical">Leave group</s-button>
-            </Form>
+            <s-button tone="critical" onClick={() => send("leave")}>Leave group</s-button>
           </s-section>
         </>
       )}
