@@ -1,0 +1,77 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "76a2f56583f16d4283193f967cdb27df"
+application_url = "https://designated-eugene-below-limitation.trycloudflare.com"
+embedded = true
+name = "Dev Inventory Sync"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products, write_inventory, read_locations, write_metaobjects, write_metaobject_definitions"
+
+[product.metafields.app.demo_info]
+type = "single_line_text_field"
+name = "Demo Source Info"
+description = "Tracks products created by the Shopify app template for development"
+
+  [product.metafields.app.demo_info.access]
+  admin = "merchant_read_write"
+
+[metaobjects.app.example]
+name = "Example"
+description = "An example metaobject definition created by this template"
+
+  [metaobjects.app.example.access]
+  admin = "merchant_read_write"
+
+[metaobjects.app.example.fields.title]
+name = "Title"
+type = "single_line_text_field"
+required = true
+
+[metaobjects.app.example.fields.description]
+name = "Description"
+type = "multi_line_text_field"
+
+[webhooks]
+api_version = "2027-01"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
+
+[events]
+api_version = "2026-10"
+
+  [[events.subscription]]
+  handle = "product-price-change"
+  topic = "Product"
+  actions = [ "update" ]
+  triggers = [ "product.variants.price", "product.variants.compareAtPrice" ]
+  uri = "/webhooks/products/update"
+  query = """
+  query product_variant_price_change($productId: ID!, $variantsId: ID!) {\r
+    product(id: $productId) {\r
+      id\r
+      title\r
+      status\r
+    }\r
+    productVariant(id: $variantsId) {\r
+      id\r
+      title\r
+      price\r
+      compareAtPrice\r
+    }\r
+  }\r
+  """
+  query_filter = "product.status:'ACTIVE'"
+
+[auth]
+redirect_urls = [ "https://designated-eugene-below-limitation.trycloudflare.com/api/auth" ]
+
+[build]
+automatically_update_urls_on_dev = true
