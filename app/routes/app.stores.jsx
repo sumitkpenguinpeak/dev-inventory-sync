@@ -71,7 +71,7 @@ export const action = async ({ request }) => {
       return { ok: true, message: "Sync options save thai gaya." };
     } else if (intent === "sync_all") {
       const r = await syncAll(session.shop);
-      return { ok: true, message: `${r.products} products sync thaya.` };
+      return { ok: true, message: `${r.products} Products Synced Successfully.` };
     }
     return { ok: true };
   } catch (e) {
@@ -103,21 +103,21 @@ export default function Stores() {
 
       {!data.role && (
         <>
-          <s-section heading="Aa store ne Master banavo">
+          <s-section heading="Make This Store the Master Store">
             <s-paragraph>
-              Aa store ma je price ane inventory badlase e bija connected stores ma sync thase.
+              Any price or inventory changes made in this store will be synced to the other connected stores.
             </s-paragraph>
             <s-button onClick={() => send("create")} {...(busy ? { loading: true } : {})}>
                 Create master group
               </s-button>
           </s-section>
 
-          <s-section heading="Master na group ma join thao">
+          <s-section heading="Join the Master Store's Group">
             <s-stack direction="block" gap="base">
               <s-text-field
                 name="code"
                 label="Join code"
-                details="Master store na Stores page par thi code lo"
+                details="Get the code from the Stores page in the master store"
                 value={code}
                 onInput={(e) => setCode(e.currentTarget.value)}
                 onChange={(e) => setCode(e.currentTarget.value)}
@@ -132,7 +132,7 @@ export default function Stores() {
         <>
           <s-section heading="Connected stores">
             <s-paragraph>
-              {data.stores.length} / {data.max} stores connected. Aa store:{" "}
+              {data.stores.length} / {data.max} Connected Stores This store:{" "}
               <s-badge tone={data.role === "MASTER" ? "success" : "info"}>{data.role}</s-badge>
             </s-paragraph>
             <s-stack direction="block" gap="small-200">
@@ -152,13 +152,13 @@ export default function Stores() {
             <>
               <s-section heading="Join code">
                 <s-paragraph>
-                  Child stores ma app install karine aa code nakho (baki 2 stores mate):
+                  Install the App on Child Stores:
                 </s-paragraph>
                 <s-heading>{data.joinCode}</s-heading>
               </s-section>
 
               <s-section heading="Sync options">
-                <s-paragraph>Master thi child ma kya fields sync karva e pasand karo:</s-paragraph>
+                <s-paragraph>Choose which fields you want to sync from the master store to the child stores:</s-paragraph>
                 <s-stack direction="block" gap="small-200">
                   {Object.entries(FIELD_LABELS).map(([key, label]) => (
                     <s-checkbox
@@ -209,11 +209,11 @@ export default function Stores() {
             </>
           )}
 
-          <s-section heading="Group chhodo">
+          <s-section heading="Leave the current group">
             <s-paragraph>
               {data.role === "MASTER"
-                ? "Master chhodso to puru group delete thai jase."
-                : "Aa store master na group mathi nikli jase."}
+                ? "If you leave the master store, the entire group will be deleted."
+                : "This store will be removed from the master store's group."}
             </s-paragraph>
             <s-button tone="critical" onClick={() => send("leave")}>Leave group</s-button>
           </s-section>

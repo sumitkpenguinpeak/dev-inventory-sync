@@ -695,7 +695,7 @@ function VariantInventory({ variant, showTitle }) {
               </s-stack>
               <s-checkbox
                 label="Sell when out of stock"
-                details="Customer out of stock hoy tyare pan order kari shake."
+                details="Customers can place orders even when the product is out of stock."
                 onChange={(e) => setSellOutOfStock(e.currentTarget.checked)}
                 {...(sellOutOfStock ? { checked: true } : {})}
               />
@@ -769,7 +769,7 @@ export default function ProductDetails() {
   };
 
   useEffect(() => {
-    if (fetcher.data?.ok) shopify.toast.show("Shopify ma product update thai gayu");
+    if (fetcher.data?.ok) shopify.toast.show("Product Updated Successfully in Shopify");
   }, [fetcher.data, shopify]);
 
   useEffect(() => {
@@ -919,7 +919,7 @@ export default function ProductDetails() {
             >
               Add images
             </s-button>
-            <s-text tone="neutral">JPG/PNG/WebP, max 20 MB. Navi image process thata 1-2 second lage.</s-text>
+            <s-text tone="neutral">JPG, PNG, and WebP, with a maximum file size of 20 MB. Processing a new image takes 1–2 seconds.</s-text>
           </s-stack>
         </s-stack>
       </s-section>
@@ -936,7 +936,7 @@ export default function ProductDetails() {
               labelAccessibilityVisibility="exclusive"
               name="description"
               rows={8}
-              details="HTML supported (jemke <p>, <strong>, <ul>)."
+              details="HTML tags such as <p>, <strong>, and <ul> are supported."
               defaultValue={product.descriptionHtml}
             />
           </s-section>
@@ -1072,7 +1072,7 @@ export default function ProductDetails() {
             <s-stack direction="inline" gap="small-200" alignItems="end">
               <s-text-field
                 label="Tags"
-                placeholder="Tag lakho (comma thi alag karo)"
+                placeholder="Enter tags (separated by commas)"
                 value={tagInput}
                 onInput={(e) => setTagInput(e.currentTarget.value)}
                 onChange={(e) => setTagInput(e.currentTarget.value)}

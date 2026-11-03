@@ -45,8 +45,7 @@ export default function Home() {
 
       <s-banner tone="success" heading="App successfully installed">
         <s-paragraph>
-          {shop.name} ({shop.myshopifyDomain}) store ma app install thai gayi
-          chhe.
+          {shop.name} ({shop.myshopifyDomain}) The app has been successfully installed on the store
         </s-paragraph>
       </s-banner>
 

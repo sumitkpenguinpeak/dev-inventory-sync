@@ -144,7 +144,7 @@ async function syncCollections(admin, masterShop, childShop, sku, c, masterTitle
 
   if (missing.length) {
     await log(masterShop, childShop, sku, "collections", "ERROR",
-      `Child ma collection nathi: ${missing.join(", ")}`);
+      `No Collections in Child Store: ${missing.join(", ")}`);
   }
   if (!toAdd.length && !toRemove.length) return;
 
@@ -359,7 +359,7 @@ async function syncToChild(masterShop, childShop, master, F) {
     for (const m of chunk) {
       const c = bySku.get(m.sku);
       if (!c) {
-        await log(masterShop, childShop, m.sku, "match", "ERROR", "Child store ma aa SKU malyo nahi");
+        await log(masterShop, childShop, m.sku, "match", "ERROR", "This SKU was not found in the child store");
         continue;
       }
       if (!productSkus.has(c.product.id)) productSkus.set(c.product.id, m.sku);
@@ -438,9 +438,9 @@ async function syncToChild(masterShop, childShop, master, F) {
 export async function syncProduct(masterShop, productGid, attempt = 0) {
   console.log("[sync] start", masterShop, productGid, "attempt", attempt);
   const link = await getMasterLink(masterShop);
-  if (!link) return console.log("[sync] STOP: aa store master nathi (group nathi)");
+  if (!link) return console.log("[sync] STOP: This store is not a master store and is not part of any group");
   const children = link.group.links.filter((l) => l.role === "CHILD");
-  if (!children.length) return console.log("[sync] STOP: koi child nathi");
+  if (!children.length) return console.log("[sync] STOP: There are no child stores connected");
   const F = parseSyncSettings(link.group.settings);
 
   const { admin } = await unauthenticated.admin(masterShop);

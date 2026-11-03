@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "76a2f56583f16d4283193f967cdb27df"
-application_url = "https://indicated-delete-immigrants-consequences.trycloudflare.com"
+application_url = "https://evaluating-cancelled-title-variation.trycloudflare.com"
 embedded = true
 name = "Dev Inventory Sync"
 
@@ -79,7 +79,7 @@ api_version = "2026-10"
   query_filter = "product.status:'ACTIVE'"
 
 [auth]
-redirect_urls = [ "https://indicated-delete-immigrants-consequences.trycloudflare.com/api/auth" ]
+redirect_urls = [ "https://evaluating-cancelled-title-variation.trycloudflare.com/api/auth" ]
 
 [build]
 automatically_update_urls_on_dev = true
